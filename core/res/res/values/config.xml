@@ -793,6 +793,9 @@
          legacy USB manager should be started. -->
     <string name="config_legacyUmsLunFile">/sys/devices/platform/usb_mass_storage/lun0/file</string>
 
+    <!-- Location of the Authentec framework jar -->
+    <string name="config_authentecJarLocation"></string>
+
     <!-- Workaround for devices with broken keyboards -->
     <bool name="config_forceDisableHardwareKeyboard">false</bool>
 
@@ -841,5 +844,4 @@
 
     <!--Boolean to enable stk functionality on Samsung phones-->
     <bool name="config_samsung_stk">false</bool>
-
 </resources>

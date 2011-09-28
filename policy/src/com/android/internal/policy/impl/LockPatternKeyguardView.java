@@ -180,6 +180,11 @@ public class LockPatternKeyguardView extends KeyguardViewBase implements Handler
         Pattern,
 
         /**
+         * Unlock by swiping a finger.
+         */
+        Finger,
+
+        /**
          * Unlock by entering a sim pin.
          */
         SimPin,
@@ -240,6 +245,12 @@ public class LockPatternKeyguardView extends KeyguardViewBase implements Handler
      * The current configuration.
      */
     private Configuration mConfiguration;
+
+    /**
+     * Used to dismiss the timeout dialog
+     */
+    private AlertDialog mTimeoutDialog;
+
 
     private Runnable mRecreateRunnable = new Runnable() {
         public void run() {
@@ -324,8 +335,20 @@ public class LockPatternKeyguardView extends KeyguardViewBase implements Handler
         mUpdateMonitor = updateMonitor;
         mLockPatternUtils = lockPatternUtils;
         mWindowController = controller;
+        mTimeoutDialog = null;
         mHasOverlay = false;
         mProfileManager = (ProfileManager) context.getSystemService(Context.PROFILE_SERVICE);
+        mTimeoutDialog = null;
+
+        // By design, this situation should never happen.
+        // If finger lock is in use, we should only allow the finger settings menu
+        // to delete all enrolled fingers. Other applications, like TSMDemo, should
+        // not get access to the database.
+        //
+        // Simply disable the finger key guard since it will fail to work in this case.
+        if (mLockPatternUtils.isLockFingerEnabled() && !mLockPatternUtils.savedFingerExists()) {
+            mLockPatternUtils.setLockFingerEnabled(false);
+        }
 
         mUpdateMonitor.registerInfoCallback(this);
 
@@ -371,6 +394,13 @@ public class LockPatternKeyguardView extends KeyguardViewBase implements Handler
             }
 
             public boolean isVerifyUnlockOnly() {
+                // This is a good place to dismiss the timeout dialog if there is one.
+                if (mTimeoutDialog != null) {
+                    if (mTimeoutDialog.isShowing()) {
+                        mTimeoutDialog.dismiss();
+                    }
+                    mTimeoutDialog = null;
+                }
                 return mIsVerifyUnlockOnly;
             }
 
@@ -427,6 +457,8 @@ public class LockPatternKeyguardView extends KeyguardViewBase implements Handler
 
                 final boolean usingPattern = mLockPatternUtils.getKeyguardStoredPasswordQuality()
                         == DevicePolicyManager.PASSWORD_QUALITY_SOMETHING;
+                final boolean usingFinger = mLockPatternUtils.getKeyguardStoredPasswordQuality()
+                        == DevicePolicyManager.PASSWORD_QUALITY_FINGER;
 
                 final int failedAttemptsBeforeWipe = mLockPatternUtils.getDevicePolicyManager()
                         .getMaximumFailedPasswordsForWipe(null);
@@ -448,12 +480,11 @@ public class LockPatternKeyguardView extends KeyguardViewBase implements Handler
                     } else {
                         // Too many attempts. The device will be wiped shortly.
                         Slog.i(TAG, "Too many unlock attempts; device will be wiped!");
-                        showWipeDialog(failedAttempts);
                     }
                 } else {
                     boolean showTimeout =
                         (failedAttempts % LockPatternUtils.FAILED_ATTEMPTS_BEFORE_TIMEOUT) == 0;
-                    if (usingPattern && mEnableFallback) {
+                    if ((usingPattern || usingFinger)&& mEnableFallback) {
                         if (failedAttempts == failedAttemptWarning) {
                             showAlmostAtAccountLoginDialog();
                             showTimeout = false; // don't show both dialogs
@@ -571,7 +602,7 @@ public class LockPatternKeyguardView extends KeyguardViewBase implements Handler
 
     @Override
     public void onScreenTurnedOff() {
-        if (DEBUG) Log.d(TAG, "screen off");
+        Log.d(TAG, "screen off");
         mScreenOn = false;
         mForgotPattern = false;
         mHasOverlay = mUpdateMonitor.getPhoneState() != TelephonyManager.CALL_STATE_IDLE;
@@ -622,7 +653,7 @@ public class LockPatternKeyguardView extends KeyguardViewBase implements Handler
 
     @Override
     public void onScreenTurnedOn() {
-        if (DEBUG) Log.d(TAG, "screen on");
+        Log.d(TAG, "screen on");
         boolean runFaceLock = false;
         //Make sure to start facelock iff the screen is both on and focused
         synchronized(mFaceLockStartupLock) {
@@ -859,6 +890,9 @@ public class LockPatternKeyguardView extends KeyguardViewBase implements Handler
                 secure = mLockPatternUtils.isLockPatternEnabled() &&
                         mProfileManager.getActiveProfile().getScreenLockMode() != Profile.LockMode.INSECURE;
                 break;
+            case Finger:
+                secure = mLockPatternUtils.isLockFingerEnabled();
+                break;
             case SimPin:
                 secure = mUpdateMonitor.getSimState() == IccCard.State.PIN_REQUIRED;
                 break;
@@ -962,6 +996,18 @@ public class LockPatternKeyguardView extends KeyguardViewBase implements Handler
                     mUpdateMonitor,
                     mKeyguardScreenCallback,
                     mUpdateMonitor.getFailedAttempts());
+            view.setEnableFallback(mEnableFallback);
+            unlockView = view;
+        } else if (unlockMode == UnlockMode.Finger) {
+            FingerUnlockScreen view = new FingerUnlockScreen(
+                    mContext,
+                    mConfiguration,
+                    mLockPatternUtils,
+                    mUpdateMonitor,
+                    mKeyguardScreenCallback,
+                    mUpdateMonitor.getFailedAttempts());
+            if (DEBUG) Log.d(TAG,
+                "createUnlockScreenFor(" + unlockMode + "): mEnableFallback=" + mEnableFallback);
             view.setEnableFallback(mEnableFallback);
             unlockView = view;
         } else if (unlockMode == UnlockMode.SimPuk) {
@@ -1072,11 +1118,14 @@ public class LockPatternKeyguardView extends KeyguardViewBase implements Handler
                 case DevicePolicyManager.PASSWORD_QUALITY_COMPLEX:
                     currentMode = UnlockMode.Password;
                     break;
+                case DevicePolicyManager.PASSWORD_QUALITY_FINGER:
                 case DevicePolicyManager.PASSWORD_QUALITY_SOMETHING:
                 case DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED:
-                    // "forgot pattern" button is only available in the pattern mode...
+                    // "forgot pattern" button is only available in the pattern mode and finger mode...
                     if (mForgotPattern || mLockPatternUtils.isPermanentlyLocked()) {
                         currentMode = UnlockMode.Account;
+                    } else if (mode == DevicePolicyManager.PASSWORD_QUALITY_FINGER) {
+                        currentMode = UnlockMode.Finger;
                     } else {
                         currentMode = UnlockMode.Pattern;
                     }
@@ -1134,14 +1183,25 @@ public class LockPatternKeyguardView extends KeyguardViewBase implements Handler
     private void showAlmostAtWipeDialog(int attempts, int remaining) {
         int timeoutInSeconds = (int) LockPatternUtils.FAILED_ATTEMPT_TIMEOUT_MS / 1000;
         String message = mContext.getString(
-                R.string.lockscreen_failed_attempts_almost_at_wipe, attempts, remaining);
-        showDialog(null, message);
-    }
-
-    private void showWipeDialog(int attempts) {
-        String message = mContext.getString(
-                R.string.lockscreen_failed_attempts_now_wiping, attempts);
-        showDialog(null, message);
+                R.string.lockscreen_failed_attempts_almost_glogin,
+                LockPatternUtils.FAILED_ATTEMPTS_BEFORE_RESET
+                - LockPatternUtils.FAILED_ATTEMPTS_BEFORE_TIMEOUT,
+                LockPatternUtils.FAILED_ATTEMPTS_BEFORE_TIMEOUT,
+                timeoutInSeconds);
+        final AlertDialog dialog = new AlertDialog.Builder(mContext)
+                .setTitle(null)
+                .setMessage(message)
+                .setNeutralButton(R.string.ok, null)
+                .create();
+        dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_KEYGUARD_DIALOG);
+        if (!mContext.getResources().getBoolean(
+                com.android.internal.R.bool.config_sf_slowBlur)) {
+            dialog.getWindow().setFlags(
+                    WindowManager.LayoutParams.FLAG_BLUR_BEHIND,
+                    WindowManager.LayoutParams.FLAG_BLUR_BEHIND);
+        }
+        mTimeoutDialog = dialog;
+        dialog.show();
     }
 
     /**

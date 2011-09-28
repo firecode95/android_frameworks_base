@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2007 The Android Open Source Project
- * Copyright (C) 2012 The CyanogenMod Project (Calendar)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -58,6 +57,10 @@ import java.util.Date;
 import java.util.List;
 import java.util.TimeZone;
 import java.util.concurrent.atomic.AtomicBoolean;
+import com.authentec.amjni.AM_STATUS;
+import com.authentec.amjni.AuthLog;
+import com.authentec.amjni.AuthentecMobile;
+import com.authentec.amjni.TSM;
 
 /**
  * Utilities for the lock pattern and its settings.
@@ -117,6 +120,7 @@ public class LockPatternUtils {
     private final static String LOCKOUT_PERMANENT_KEY = "lockscreen.lockedoutpermanently";
     private final static String LOCKOUT_ATTEMPT_DEADLINE = "lockscreen.lockoutattemptdeadline";
     private final static String PATTERN_EVER_CHOSEN_KEY = "lockscreen.patterneverchosen";
+    private final static String LOCK_FINGER_ENABLED = "lockscreen.lockfingerenabled";
     public final static String PASSWORD_TYPE_KEY = "lockscreen.password_type";
     public static final String PASSWORD_TYPE_ALTERNATE_KEY = "lockscreen.password_type_alternate";
     private final static String LOCK_PASSWORD_SALT_KEY = "lockscreen.password_salt";
@@ -141,6 +145,8 @@ public class LockPatternUtils {
     private static final AtomicBoolean sHaveNonZeroPasswordFile = new AtomicBoolean(false);
 
     private static FileObserver sPasswordObserver;
+
+    private AuthentecMobile am = null;
 
     private static class PasswordFileObserver extends FileObserver {
         public PasswordFileObserver(String path, int mask) {
@@ -191,6 +197,8 @@ public class LockPatternUtils {
             sPasswordObserver = new PasswordFileObserver(dataSystemDirectory, fileObserverMask);
             sPasswordObserver.startWatching();
         }
+
+        am = new AuthentecMobile(context);
     }
 
     public int getRequestedMinimumPasswordLength() {
@@ -340,6 +348,20 @@ public class LockPatternUtils {
     }
 
     /**
+     * Check to see if the user has stored a finger.
+     * @return Whether a saved finger exists.
+     */
+    public boolean savedFingerExists() {
+            try{
+		int iMap = am.AMApplication_LAP_Get_Map();
+	   	Log.e(TAG, "savedFingerExists = "+iMap);
+		return (iMap>0)&&(iMap!=AM_STATUS.eAM_STATUS_LIBRARY_NOT_AVAILABLE);
+            } catch (Exception re) {
+              return false;
+        }    
+    }
+
+    /**
      * Return true if the user has ever chosen a pattern.  This is true even if the pattern is
      * currently cleared.
      *
@@ -393,6 +415,11 @@ public class LockPatternUtils {
             case DevicePolicyManager.PASSWORD_QUALITY_ALPHANUMERIC:
                 if (isLockPasswordEnabled()) {
                     activePasswordQuality = DevicePolicyManager.PASSWORD_QUALITY_ALPHANUMERIC;
+                }
+                break;
+            case DevicePolicyManager.PASSWORD_QUALITY_FINGER:
+                if (isLockFingerEnabled()) {
+                    activePasswordQuality = DevicePolicyManager.PASSWORD_QUALITY_FINGER;
                 }
                 break;
             case DevicePolicyManager.PASSWORD_QUALITY_COMPLEX:
@@ -849,7 +876,7 @@ public class LockPatternUtils {
     }
 
     /**
-     * @return Whether the lock pattern is enabled, or if it is set as a backup for biometric weak
+     * @return Whether the lock pattern is enabled.
      */
     public boolean isLockPatternEnabled() {
         final boolean backupEnabled =
@@ -860,6 +887,20 @@ public class LockPatternUtils {
                 && (getLong(PASSWORD_TYPE_KEY, DevicePolicyManager.PASSWORD_QUALITY_SOMETHING)
                         == DevicePolicyManager.PASSWORD_QUALITY_SOMETHING ||
                         (usingBiometricWeak() && backupEnabled));
+    }
+
+    /**
+     * @return Whether the lock finger is enabled.
+     */
+    public boolean isLockFingerEnabled() {
+        final boolean backupEnabled =
+                getLong(PASSWORD_TYPE_ALTERNATE_KEY, DevicePolicyManager.PASSWORD_QUALITY_FINGER)
+                == DevicePolicyManager.PASSWORD_QUALITY_FINGER;
+
+        return getBoolean(LOCK_FINGER_ENABLED, false)
+                && (getLong(PASSWORD_TYPE_KEY, DevicePolicyManager.PASSWORD_QUALITY_FINGER)
+                        == DevicePolicyManager.PASSWORD_QUALITY_FINGER ||
+                        backupEnabled);
     }
 
     /**
@@ -896,6 +937,18 @@ public class LockPatternUtils {
      */
     public void setLockPatternEnabled(boolean enabled) {
         setBoolean(Settings.Secure.LOCK_PATTERN_ENABLED, enabled);
+    }
+
+    /**
+     * Set whether the lock finger is enabled.
+     */
+    public void setLockFingerEnabled(boolean enabled) {
+        setBoolean(LOCK_FINGER_ENABLED, enabled);
+        if (enabled) {
+            setLong(PASSWORD_TYPE_KEY, DevicePolicyManager.PASSWORD_QUALITY_FINGER);
+        } else {
+            setLong(PASSWORD_TYPE_KEY, DevicePolicyManager.PASSWORD_QUALITY_SOMETHING);
+        }
     }
 
     /**
@@ -1190,11 +1243,13 @@ public class LockPatternUtils {
     public boolean isSecure() {
         long mode = getKeyguardStoredPasswordQuality();
         final boolean isPattern = mode == DevicePolicyManager.PASSWORD_QUALITY_SOMETHING;
+        final boolean isFinger = mode == DevicePolicyManager.PASSWORD_QUALITY_FINGER;
         final boolean isPassword = mode == DevicePolicyManager.PASSWORD_QUALITY_NUMERIC
                 || mode == DevicePolicyManager.PASSWORD_QUALITY_ALPHABETIC
                 || mode == DevicePolicyManager.PASSWORD_QUALITY_ALPHANUMERIC
                 || mode == DevicePolicyManager.PASSWORD_QUALITY_COMPLEX;
         final boolean secure = isPattern && isLockPatternEnabled() && savedPatternExists()
+                || isFinger && isLockFingerEnabled() && savedFingerExists()
                 || isPassword && savedPasswordExists();
         return secure;
     }
@@ -1252,6 +1307,43 @@ public class LockPatternUtils {
         }
         return false;
     }
+
+	public int Unlock(String sScreen ,Context ctx) {
+		// make sure the TSM library is loaded before we try to use
+		// it...
+		if (!am.AM2ClientLibraryLoaded()) {
+			return AM_STATUS.eAM_STATUS_LIBRARY_NOT_AVAILABLE;
+		}
+		if(null == ctx){
+			return AM_STATUS.eAM_STATUS_INVALID_PARAMETER;
+		}
+		
+		int iResult = TSM.LAP(ctx).verify().viaGfxScreen(sScreen).exec();
+
+		//if (AM_STATUS.eAM_STATUS_OK == iResult) {
+		//	return 0;
+
+		//} else if (AM_STATUS.eAM_STATUS_NO_STORED_CREDENTIAL == iResult) {
+		//	return 0;		
+
+		//} else if (AM_STATUS.eAM_STATUS_LIBRARY_NOT_AVAILABLE == iResult) {
+			//AuthLog.error("UnlockScreenFinger",
+			//		"Library failed to load... cannot proceed!");
+
+		//} else if (AM_STATUS.eAM_STATUS_USER_CANCELED == iResult) {
+			//AuthLog.error("UnlockScreenFinger",
+			//		"Simulating device lock.\nYou may not cancel!");
+		//}
+
+		try {
+			Thread.sleep(1500);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+		return iResult;
+	}
 
     private void finishBiometricWeak() {
         setBoolean(BIOMETRIC_WEAK_EVER_CHOSEN_KEY, true);
