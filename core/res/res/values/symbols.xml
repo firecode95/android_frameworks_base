@@ -2017,4 +2017,21 @@
 
   <!-- Package Manager -->
   <java-symbol type="array" name="config_disabledComponents" />
+
+  <java-symbol type="layout" name="keyguard_screen_finger_landscape" />
+  <java-symbol type="layout" name="keyguard_screen_finger_portrait" />
+  <java-symbol type="string" name="keyguard_finger_failed_to_unlock" />
+  <java-symbol type="string" name="keyguard_finger_match" />
+  <java-symbol type="string" name="keyguard_finger_not_match" />
+  <java-symbol type="string" name="keyguard_finger_please_swipe" />
+  <java-symbol type="string" name="keyguard_finger_screen_off" />
+  <java-symbol type="string" name="keyguard_finger_swipe_too_far_left" />
+  <java-symbol type="string" name="keyguard_finger_swipe_too_far_right" />
+  <java-symbol type="string" name="keyguard_finger_swipe_too_fast" />
+  <java-symbol type="string" name="keyguard_finger_swipe_too_short" />
+  <java-symbol type="string" name="keyguard_finger_swipe_too_skewed" />
+  <java-symbol type="string" name="keyguard_finger_swipe_too_slow" />
+  <java-symbol type="string" name="keyguard_finger_ui_timeout" />
+  <java-symbol type="string" name="lockscreen_forgot_finger_button_text" />
+
 </resources>

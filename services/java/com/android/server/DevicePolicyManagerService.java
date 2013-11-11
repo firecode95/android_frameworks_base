@@ -1196,6 +1196,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
             case DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED:
             case DevicePolicyManager.PASSWORD_QUALITY_BIOMETRIC_WEAK:
             case DevicePolicyManager.PASSWORD_QUALITY_SOMETHING:
+            case DevicePolicyManager.PASSWORD_QUALITY_FINGER:
             case DevicePolicyManager.PASSWORD_QUALITY_NUMERIC:
             case DevicePolicyManager.PASSWORD_QUALITY_ALPHABETIC:
             case DevicePolicyManager.PASSWORD_QUALITY_ALPHANUMERIC:
@@ -1883,23 +1884,38 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
     public boolean resetPassword(String password, int flags, int userHandle) {
         enforceCrossUserPermission(userHandle);
         int quality;
+        int realQuality = LockPatternUtils.computePasswordQuality(password);
         synchronized (this) {
             // This API can only be called by an active device admin,
             // so try to retrieve it to check that the caller is one.
             getActiveAdminForCallerLocked(null,
                     DeviceAdminInfo.USES_POLICY_RESET_PASSWORD);
             quality = getPasswordQuality(null, userHandle);
-            if (quality != DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED) {
-                int realQuality = LockPatternUtils.computePasswordQuality(password);
-                if (realQuality < quality
-                        && quality != DevicePolicyManager.PASSWORD_QUALITY_COMPLEX) {
-                    Slog.w(TAG, "resetPassword: password quality 0x"
-                            + Integer.toHexString(quality)
-                            + " does not meet required quality 0x"
-                            + Integer.toHexString(quality));
+            if ((flags == DevicePolicyManager.ENABLE_FINGER_LOCK) ||
+                (flags == DevicePolicyManager.DISABLE_FINGER_LOCK)) {
+                // Log.d("DevicePolicyManagerService", "Enable/Disable finger lock");
+                // do nothing.
+            } else {
+                if (quality != DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED) {
+                    
+
+                    if (realQuality < quality) {
+                        Slog.w(TAG, "resetPassword: password quality 0x"
+                                + Integer.toHexString(quality)
+                                + " does not meet required quality 0x"
+                                + Integer.toHexString(quality));
+                        return false;
+                    }
+                    quality = realQuality;
+                }
+
+                int length = getPasswordMinimumLength(null, userHandle);
+                if (password.length() < length) {
+                    Slog.w(TAG, "resetPassword: password length " + password.length()
+                            + " does not meet required length " + length);
                     return false;
                 }
-                quality = Math.max(realQuality, quality);
+                quality = realQuality;
             }
             int length = getPasswordMinimumLength(null, userHandle);
             if (password.length() < length) {

@@ -239,7 +239,8 @@ LOCAL_SRC_FILES += \
 	fmradio/java/com/stericsson/hardware/fm/IOnSignalStrengthListener.aidl \
 	fmradio/java/com/stericsson/hardware/fm/IOnStereoListener.aidl \
 	fmradio/java/com/stericsson/hardware/fm/IOnExtraCommandListener.aidl \
-	fmradio/java/com/stericsson/hardware/fm/IOnAutomaticSwitchListener.aidl
+	fmradio/java/com/stericsson/hardware/fm/IOnAutomaticSwitchListener.aidl \
+	core/java/com/authentec/TrueSuiteMobile/RelayReceiverService.aidl
 #
 
 
@@ -256,6 +257,10 @@ LOCAL_JAVA_LIBRARIES := bouncycastle core core-junit ext
 
 LOCAL_MODULE := framework
 LOCAL_MODULE_CLASS := JAVA_LIBRARIES
+LOCAL_STATIC_JAVA_LIBRARIES := authentec-am2app
+
+LOCAL_NO_EMMA_INSTRUMENT := true
+LOCAL_NO_EMMA_COMPILE := true
 
 # List of classes and interfaces which should be loaded by the Zygote.
 LOCAL_JAVA_RESOURCE_FILES += $(LOCAL_PATH)/preloaded-classes

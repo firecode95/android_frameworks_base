@@ -2306,6 +2306,12 @@
                 android:process=":ui">
         </activity>
 
+        <service android:name="com.authentec.TrueSuiteMobile.GfxEngineRelayService">
+            <intent-filter>
+                <action android:name="com.authentec.Keyguard" />
+            </intent-filter>
+        </service>
+
         <receiver android:name="com.android.server.BootReceiver"
                 android:primaryUserOnly="true">
             <intent-filter>
